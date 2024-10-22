@@ -1,27 +1,36 @@
 package handler
 
 import (
-	"database/sql"
 	"log/slog"
+	"os"
 	"plays-tcp/types"
-    _ "github.com/glebarez/go-sqlite"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 type CommandHandler struct {
-    db *sql.DB
+	db *gorm.DB
 }
 
 func NewCommandHandler() *CommandHandler {
-	db, err := sql.Open("sqlite", ":memory:")
+	// create .store if not exists
+	path := ".store"
+	_ = os.MkdirAll(path, os.ModePerm)
+
+	// init db
+	db, err := gorm.Open(sqlite.Open(".store/binq.db"), &gorm.Config{})
 	if err != nil {
-		slog.Error("Error initializing sqlite","error",err)
+		slog.Error("Error initializing sqlite", "error", err)
 	}
-    return &CommandHandler{
-        db: db,
-    }
+	// automigrate db
+	db.AutoMigrate(&types.Message{})
+	return &CommandHandler{
+		db: db,
+	}
 }
 
-// consider moving the db connection to this class 
+// consider moving the db connection to this class
 
 func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 
