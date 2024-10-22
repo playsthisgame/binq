@@ -20,6 +20,7 @@ type TCP struct {
 	mutex       sync.RWMutex
 	FromSockets chan types.TCPCommandWrapper
 	NewSocket   chan *types.Connection
+    cmdHandler  *handler.CommandHandler
 }
 
 func (t *TCP) ConnectionCount() int {
@@ -75,7 +76,7 @@ func (t *TCP) Close() {
 	t.listener.Close()
 }
 
-func NewTCPServer(port uint16) (*TCP, error) {
+func NewTCPServer(port uint16, cmdHandler *handler.CommandHandler) (*TCP, error) {
 	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		return nil, err
@@ -88,6 +89,7 @@ func NewTCPServer(port uint16) (*TCP, error) {
 		listener:    listener,
 		FromSockets: make(chan types.TCPCommandWrapper, 10),
 		mutex:       sync.RWMutex{},
+        cmdHandler:  cmdHandler,
 	}, nil
 }
 
@@ -106,7 +108,7 @@ func readConnection(tcp *TCP, conn *types.Connection) {
 
 		slog.Info("new command", "id", conn.Id, "cmd", cmd)
 		// tcp.FromSockets <- TCPCommandWrapper{Command: cmd, Conn: conn} // Do I need this? can I just handle the cmd
-		handler.Handle(&types.TCPCommandWrapper{Command: cmd, Conn: conn})
+		tcp.cmdHandler.Handle(&types.TCPCommandWrapper{Command: cmd, Conn: conn})
 	}
 }
 
