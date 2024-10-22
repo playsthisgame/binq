@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"log/slog"
 	"plays-tcp/types"
+    _ "github.com/glebarez/go-sqlite"
 )
 
 type CommandHandler struct {
