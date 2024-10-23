@@ -31,7 +31,7 @@ func NewCommandHandler() *CommandHandler {
 	}
 	// automigrate db
 	db.AutoMigrate(&types.Message{})
-    db.AutoMigrate(&types.Queue{})
+	db.AutoMigrate(&types.Queue{})
 	return &CommandHandler{
 		db:              db,
 		maxPartitions:   100,                                  // TODO: bring this in from a config, defaulting to 100 for now
@@ -43,13 +43,13 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 
 	// TODO: figure out how to use iota
 	const (
-        create = "CREATE"
+		create  = "CREATE"
 		produce = "PRODUCE"
 		consume = "CONSUME"
 	)
 
 	cmds := make(map[int]string)
-    cmds[1] = "CREATE"
+	cmds[1] = "CREATE"
 	cmds[2] = "PRODUCE"
 	cmds[3] = "CONSUME"
 
@@ -59,11 +59,11 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 	op, ok := cmds[int(cmd)]
 	if ok {
 		switch op {
-        case create:
-            err := createQueue(cmdWrapper.Command.Data, *h.db)
-            if err != nil {
-                slog.Error("Error while create queue")
-            }
+		case create:
+			err := createQueue(cmdWrapper.Command.Data, *h.db)
+			if err != nil {
+				slog.Error("Error while create queue")
+			}
 		case produce:
 			// return handleRead(cmdWrapper)
 			slog.Info("producer added", "op", op)
@@ -97,12 +97,12 @@ func rebalanceConsumers(consumerSockets *[]types.ConsumerSocket, totalInstance i
 }
 
 func createQueue(data []byte, db gorm.DB) error {
-    queueName := string(data)
-    queue := types.Queue{Name: queueName}
-    res := db.Create(&queue)
-    if res.Error != nil {
-        return errors.New(fmt.Sprintf("Error creating queue %v",queueName))
-    }
-    slog.Info("Queue Created", "name", queueName)
-    return nil
+	queueName := string(data)
+	queue := types.Queue{Name: queueName}
+	res := db.Create(&queue)
+	if res.Error != nil {
+		return errors.New(fmt.Sprintf("Error creating queue %v", queueName))
+	}
+	slog.Info("Queue Created", "name", queueName)
+	return nil
 }
