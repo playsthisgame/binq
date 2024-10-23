@@ -15,13 +15,13 @@ func main() {
 	cmdHandler := handler.NewCommandHandler()
 
 	// set up tcp server
-	server, err := tcp.NewTCPServer(3000, cmdHandler) // create an option to start the app on a different port
+	server, err := tcp.NewTCPServer(3000) // create an option to start the app on a different port
 	if err != nil {
 		slog.Error("Error creating new TCP server:", "error", err)
 	}
 	defer server.Close()
 	go server.Start()
-	slog.Info("bin-queue started...")
+	slog.Info("binq started...")
 
 	for {
 		cmd := <-server.FromSockets
