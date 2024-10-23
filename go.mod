@@ -1,4 +1,4 @@
-module binq
+module github.com/playsthisgame/binq
 
 go 1.22.2
 
