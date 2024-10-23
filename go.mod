@@ -1,4 +1,4 @@
-module plays-tcp
+module binq
 
 go 1.22.2
 
