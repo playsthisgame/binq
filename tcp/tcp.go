@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"net"
 
-	"plays-tcp/types"
+	"binq/types"
 	"sync"
 	"syscall"
 )

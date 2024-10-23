@@ -1,11 +1,11 @@
 package main
 
 import (
+	"binq/types"
 	"crypto/rand"
 	"io"
 	"log/slog"
 	"net"
-	"plays-tcp/types"
 )
 
 // an example of a client

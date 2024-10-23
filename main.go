@@ -1,10 +1,10 @@
 package main
 
 import (
+	"binq/handler"
+	"binq/tcp"
 	"log/slog"
 	"os"
-	"plays-tcp/handler"
-	"plays-tcp/tcp"
 )
 
 func main() {
