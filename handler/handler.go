@@ -1,12 +1,13 @@
 package handler
 
 import (
-	"binq/types"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"sync"
+
+	"github.com/playsthisgame/binq/types"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"

@@ -7,9 +7,10 @@ import (
 	"log/slog"
 	"net"
 
-	"binq/types"
 	"sync"
 	"syscall"
+
+	"github.com/playsthisgame/binq/types"
 )
 
 type TCP struct {

@@ -1,10 +1,11 @@
 package main
 
 import (
-	"binq/handler"
-	"binq/tcp"
 	"log/slog"
 	"os"
+
+	"github.com/playsthisgame/binq/handler"
+	"github.com/playsthisgame/binq/tcp"
 )
 
 func main() {

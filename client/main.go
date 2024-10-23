@@ -1,11 +1,12 @@
 package main
 
 import (
-	"binq/types"
 	"crypto/rand"
 	"io"
 	"log/slog"
 	"net"
+
+	"github.com/playsthisgame/binq/types"
 )
 
 // an example of a client
