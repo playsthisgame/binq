@@ -1,11 +1,11 @@
 package handler
 
 import (
+	"binq/types"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
-	"plays-tcp/types"
 	"sync"
 
 	"github.com/glebarez/sqlite"
