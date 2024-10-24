@@ -102,7 +102,7 @@ func createQueue(data []byte, db gorm.DB) error {
 	queue := types.Queue{Name: queueName}
 	res := db.Create(&queue)
 	if res.Error != nil {
-		return errors.New(fmt.Sprintf("Error creating queue %v", queueName))
+		return errors.New(fmt.Sprintf("Error creating queue %s", queueName))
 	}
 	slog.Info("Queue Created", "name", queueName)
 	return nil
