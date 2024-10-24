@@ -5,5 +5,5 @@ import "gorm.io/gorm"
 type Queue struct {
 	gorm.Model
 	Name          string `gorm:"index" json:"name"`
-	MaxPartitions string `json:"maxPartitions"`
+	MaxPartitions int    `json:"maxPartitions"`
 }
