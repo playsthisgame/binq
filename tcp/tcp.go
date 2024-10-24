@@ -104,7 +104,6 @@ func readConnection(tcp *TCP, conn *types.Connection) {
 			break
 		}
 
-		slog.Info("new command", "id", conn.Id, "cmd", cmd)
 		tcp.FromSockets <- types.TCPCommandWrapper{Command: cmd, Conn: conn}
 	}
 }
