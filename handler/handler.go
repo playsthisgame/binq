@@ -74,10 +74,10 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 			}
 		case consume:
 			var request types.ReceiveRequest
-			json.Unmarshal(cmdWrapper.Command.Data, &request)
-			// if err != nil {
-			// return errors.New("error unmarshalling message")
-			// }
+			err := request.UnmarshalBinary(cmdWrapper.Command.Data)
+			if err != nil {
+				slog.Error("error unmarshalling message")
+			}
 
 			// make a new consumer socket
 			consumerSocket, err := types.NewConsumerSocket(cmdWrapper.Conn.Id, cmdWrapper.Conn.Id, h.maxPartitions, request.QueueName, *cmdWrapper.Conn)
@@ -96,6 +96,7 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 			slog.Info("consumer added", "instance", consumerSocket.Instance, "partition count", len(consumerSocket.Partitions), "partitions", consumerSocket.Partitions)
 
 			sendMessages(&request, h)
+
 		}
 	}
 }
@@ -126,7 +127,7 @@ func createQueue(data []byte, db gorm.DB) error {
 // assign the partition to the message here
 func createMessage(data []byte, db gorm.DB) error {
 	var msg types.Message
-	err := json.Unmarshal(data, &msg)
+	err := msg.UnmarshalBinary(data)
 	if err != nil {
 		return errors.New("error unmarshalling message")
 	}
@@ -164,7 +165,8 @@ func sendMessages(req *types.ReceiveRequest, h *CommandHandler) error {
 
 		var messages []types.Message
 
-		h.db.Limit(req.BatchSize).Where("queue_name = ? AND partitions = ?", consumer.QueueName, consumer.Partitions).Find(&messages)
+		//.Limit(req.BatchSize)
+		h.db.Where("queue_name = ? AND partition IN ?", consumer.QueueName, consumer.Partitions).Find(&messages)
 
 		consumer.Conn.Writer.Write(&types.MessageBatch{
 			Messages: messages,

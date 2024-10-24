@@ -51,5 +51,9 @@ func (r *ReceiveRequest) MarshalBinary() (data []byte, err error) {
 }
 
 func (r *ReceiveRequest) UnmarshalBinary(bytes []byte) error {
-	return json.Unmarshal(bytes, &ReceiveRequest{})
+	err := json.Unmarshal(bytes, r)
+	if err != nil {
+		return err
+	}
+	return nil
 }

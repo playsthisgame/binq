@@ -18,7 +18,11 @@ func (m *Message) MarshalBinary() (data []byte, err error) {
 }
 
 func (m *Message) UnmarshalBinary(bytes []byte) error {
-	return json.Unmarshal(bytes, &Message{})
+	err := json.Unmarshal(bytes, m)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 type MessageBatch struct {
@@ -30,5 +34,9 @@ func (m *MessageBatch) MarshalBinary() (data []byte, err error) {
 }
 
 func (m *MessageBatch) UnmarshalBinary(bytes []byte) error {
-	return json.Unmarshal(bytes, &MessageBatch{})
+	err := json.Unmarshal(bytes, m)
+	if err != nil {
+		return err
+	}
+	return nil
 }
