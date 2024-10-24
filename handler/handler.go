@@ -73,9 +73,14 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 				slog.Error("Error while create queue")
 			}
 		case consume:
+			var request types.ReceiveRequest
+			json.Unmarshal(cmdWrapper.Command.Data, &request)
+			// if err != nil {
+			// return errors.New("error unmarshalling message")
+			// }
+
 			// make a new consumer socket
-      queueName := string(cmdWrapper.Command.Data)
-			consumerSocket, err := types.NewConsumerSocket(cmdWrapper.Conn.Id, cmdWrapper.Conn.Id, h.maxPartitions, queueName, *cmdWrapper.Conn)
+			consumerSocket, err := types.NewConsumerSocket(cmdWrapper.Conn.Id, cmdWrapper.Conn.Id, h.maxPartitions, request.QueueName, *cmdWrapper.Conn)
 			if err != nil {
 				slog.Error("Error create client socket", "id", cmdWrapper.Conn.Id)
 			}
@@ -90,13 +95,7 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 
 			slog.Info("consumer added", "instance", consumerSocket.Instance, "partition count", len(consumerSocket.Partitions), "partitions", consumerSocket.Partitions)
 
-			// does this go into a go routine?
-			for i := 0; i < len(h.consumerSockets); i++ {
-				// consumer := h.consumerSockets[i]
-
-				// create the query
-				// write to the consumer
-			}
+			sendMessages(&request, h)
 		}
 	}
 }
@@ -143,22 +142,34 @@ func createMessage(data []byte, db gorm.DB) error {
 	return nil
 }
 
+// create consumer
+// func createConsumer(data []byte, db gorm.DB) error {
+//   var request types.ReceiveRequest
+//   err := json.Unmarshal(data, &request)
+// 	if err != nil {
+// 		return errors.New("error unmarshalling message")
+// 	}
+
+// }
+
 func randRange(min, max int) int {
 	return rand.IntN(max+1-min) + min
 }
 
-func sendMessages(h *CommandHandler){
-  var wg sync.WaitGroup
+func sendMessages(req *types.ReceiveRequest, h *CommandHandler) error {
+	var wg sync.WaitGroup
 	for i := 0; i < len(h.consumerSockets); i++ {
-    wg.Add(1)
+		wg.Add(1)
 		consumer := h.consumerSockets[i]
 
-    var messages []types.Message
-    
-    h.db.Where("queue_name = ? AND partitions = ?", h., consumer.Partitions).Find(&messages)
+		var messages []types.Message
 
-		// create the query
-		// write to the consumer
+		h.db.Limit(req.BatchSize).Where("queue_name = ? AND partitions = ?", consumer.QueueName, consumer.Partitions).Find(&messages)
+
+		consumer.Conn.Writer.Write(&types.MessageBatch{
+			Messages: messages,
+		})
 	}
-  wg.Wait()
+	wg.Wait()
+	return nil
 }

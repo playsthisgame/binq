@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 )
@@ -34,13 +35,21 @@ func SetPartitions(instance int, totalInstances int, maxPartitions int) []int {
 }
 
 type ReceiveRequest struct {
-	queueName string
-	batchSize int
+	QueueName string
+	BatchSize int
 }
 
 func NewReceiveRequest(queueName string, batchSize int) *ReceiveRequest {
 	return &ReceiveRequest{
-		queueName: queueName,
-		batchSize: batchSize,
+		QueueName: queueName,
+		BatchSize: batchSize,
 	}
+}
+
+func (r *ReceiveRequest) MarshalBinary() (data []byte, err error) {
+	return json.Marshal(r)
+}
+
+func (r *ReceiveRequest) UnmarshalBinary(bytes []byte) error {
+	return json.Unmarshal(bytes, &ReceiveRequest{})
 }
