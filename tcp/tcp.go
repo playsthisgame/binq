@@ -14,7 +14,6 @@ import (
 )
 
 type TCP struct {
-	welcomes    []types.WelcomeCB
 	sockets     []types.Connection
 	listener    net.Listener
 	mutex       sync.RWMutex
@@ -26,6 +25,7 @@ func (t *TCP) ConnectionCount() int {
 	return len(t.sockets)
 }
 
+// send a command to all of the sockets, remove socket on err
 func (t *TCP) Send(command *types.TCPCommand) {
 	t.mutex.RLock()
 	removals := make([]int, 0)
@@ -53,24 +53,6 @@ func (t *TCP) Send(command *types.TCPCommand) {
 	}
 }
 
-func (t *TCP) welcome(conn *types.Connection) error {
-	for _, w := range t.welcomes {
-		cmd := w()
-		err := conn.Writer.Write(cmd)
-
-		if err != nil {
-			// TODO: Do i need to close the connection?
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (t *TCP) WelcomeMessage(cmd types.WelcomeCB) {
-	t.welcomes = append(t.welcomes, cmd)
-}
-
 func (t *TCP) Close() {
 	t.listener.Close()
 }
@@ -84,7 +66,6 @@ func NewTCPServer(port uint16) (*TCP, error) {
 	// TODO: Done channel
 	return &TCP{
 		sockets:     make([]types.Connection, 0, 100),
-		welcomes:    make([]types.WelcomeCB, 0, 100),
 		listener:    listener,
 		FromSockets: make(chan types.TCPCommandWrapper, 100),
 		mutex:       sync.RWMutex{},
@@ -108,10 +89,10 @@ func readConnection(tcp *TCP, conn *types.Connection) {
 	}
 }
 
-func (t *TCP) Start() {
+func (tcp *TCP) Start() {
 	id := 0
 	for {
-		conn, err := t.listener.Accept()
+		conn, err := tcp.listener.Accept()
 		id++
 
 		if err != nil {
@@ -120,23 +101,11 @@ func (t *TCP) Start() {
 
 		newConn := types.NewConnection(conn, id)
 		slog.Debug("new connection", "id", newConn.Id)
-		err = t.welcome(&newConn)
 
-		if err != nil {
-			slog.Error("could not send out welcome messages", "error", err)
-			continue
-		}
+		tcp.mutex.Lock()
+		tcp.sockets = append(tcp.sockets, newConn)
+		tcp.mutex.Unlock()
 
-		t.mutex.Lock()
-		t.sockets = append(t.sockets, newConn) // TODO: maybe make producer socket separate from the consumer ones
-		t.mutex.Unlock()
-
-		go readConnection(t, &newConn)
-	}
-}
-
-func MakeWelcome(cmd *types.TCPCommand) types.WelcomeCB {
-	return func() *types.TCPCommand {
-		return cmd
+		go readConnection(tcp, &newConn)
 	}
 }

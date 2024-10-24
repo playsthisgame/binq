@@ -47,14 +47,14 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 	// TODO: figure out how to use iota
 	const (
 		create  = "CREATE"
-		produce = "PRODUCE"
-		consume = "CONSUME"
+		publish = "PUBLISH"
+		receive = "RECEIVE"
 	)
 
 	cmds := make(map[int]string)
 	cmds[1] = "CREATE"
-	cmds[2] = "PRODUCE"
-	cmds[3] = "CONSUME"
+	cmds[2] = "PUBLISH"
+	cmds[3] = "RECEIVE"
 
 	cmd := cmdWrapper.Command.Command
 	// data := cmdWrapper.Command.Data
@@ -67,12 +67,12 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 			if err != nil {
 				slog.Error("Error while create queue")
 			}
-		case produce:
+		case publish:
 			err := createMessage(cmdWrapper.Command.Data, *h.db)
 			if err != nil {
 				slog.Error("Error while create queue")
 			}
-		case consume:
+		case receive:
 			var request types.ReceiveRequest
 			err := request.UnmarshalBinary(cmdWrapper.Command.Data)
 			if err != nil {
@@ -158,20 +158,20 @@ func randRange(min, max int) int {
 }
 
 func sendMessages(req *types.ReceiveRequest, h *CommandHandler) error {
-	var wg sync.WaitGroup
+	// var wg sync.WaitGroup
 	for i := 0; i < len(h.consumerSockets); i++ {
-		wg.Add(1)
+		// wg.Add(1)
 		consumer := h.consumerSockets[i]
 
 		var messages []types.Message
 
-		//.Limit(req.BatchSize)
-		h.db.Where("queue_name = ? AND partition IN ?", consumer.QueueName, consumer.Partitions).Find(&messages)
+		//
+		h.db.Limit(req.BatchSize).Where("queue_name = ? AND partition IN ?", consumer.QueueName, consumer.Partitions).Find(&messages)
 
 		consumer.Conn.Writer.Write(&types.MessageBatch{
 			Messages: messages,
 		})
 	}
-	wg.Wait()
+	// wg.Wait()
 	return nil
 }
