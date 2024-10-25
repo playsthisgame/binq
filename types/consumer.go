@@ -34,23 +34,23 @@ func SetPartitions(instance int, totalInstances int, maxPartitions int) []int {
 	return partitions
 }
 
-type ConsumerClientConfig struct {
+type ConsumerRequest struct {
 	QueueName string
 	BatchSize int
 }
 
-func NewConsumerClientConfig(queueName string, batchSize int) *ConsumerClientConfig {
-	return &ConsumerClientConfig{
+func NewConsumerRequest(queueName string, batchSize int) *ConsumerRequest {
+	return &ConsumerRequest{
 		QueueName: queueName,
 		BatchSize: batchSize,
 	}
 }
 
-func (r *ConsumerClientConfig) MarshalBinary() (data []byte, err error) {
+func (r *ConsumerRequest) MarshalBinary() (data []byte, err error) {
 	return json.Marshal(r)
 }
 
-func (r *ConsumerClientConfig) UnmarshalBinary(bytes []byte) error {
+func (r *ConsumerRequest) UnmarshalBinary(bytes []byte) error {
 	err := json.Unmarshal(bytes, r)
 	if err != nil {
 		return err
