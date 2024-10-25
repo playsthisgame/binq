@@ -49,12 +49,14 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 		create  = "CREATE"
 		publish = "PUBLISH"
 		receive = "RECEIVE"
+		ack     = "ACK"
 	)
 
 	cmds := make(map[int]string)
 	cmds[1] = "CREATE"
 	cmds[2] = "PUBLISH"
 	cmds[3] = "RECEIVE"
+	cmds[4] = "ACK"
 
 	cmd := cmdWrapper.Command.Command
 	// data := cmdWrapper.Command.Data
@@ -100,6 +102,11 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 				go sendMessages(&h.consumerSockets[i], &request, h.db)
 			}
 
+		case ack:
+			err := ackMessages(cmdWrapper.Command.Data, *h.db)
+			if err != nil {
+				slog.Error("Error while create queue")
+			}
 		}
 	}
 }
@@ -164,4 +171,8 @@ func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db
 
 		// TODO: ack messages
 	}
+}
+
+func ackMessages(data []byte, db gorm.DB) error {
+	return nil
 }
