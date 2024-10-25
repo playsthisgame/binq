@@ -169,7 +169,7 @@ func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db
 			return err
 		}
 
-		// TODO: ack messages
+		// TODO: add a lockedDateTime field to the message, so that other consumers/this consumer cant get the message until its unlocked, then have the ack remove the messages from the queue.
 	}
 }
 
