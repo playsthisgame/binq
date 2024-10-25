@@ -44,7 +44,7 @@ func NewCommandHandler() *CommandHandler {
 
 func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 
-	// TODO: figure out how to use iota
+	// TODO: figure out how to use iota,also move this to the struct?
 	const (
 		create  = "CREATE"
 		publish = "PUBLISH"
@@ -73,7 +73,7 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 				slog.Error("Error while create queue")
 			}
 		case receive:
-			var request types.ReceiveRequest
+			var request types.ConsumerRequest
 			err := request.UnmarshalBinary(cmdWrapper.Command.Data)
 			if err != nil {
 				slog.Error("error unmarshalling message")
@@ -95,7 +95,10 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 
 			slog.Info("consumer added", "instance", consumerSocket.Instance, "partition count", len(consumerSocket.Partitions), "partitions", consumerSocket.Partitions)
 
-			sendMessages(&request, h)
+			// TODO: when a consumer leaves we need to remove it from the consumerSockets
+			for i := 0; i < len(h.consumerSockets); i++ {
+				go sendMessages(&h.consumerSockets[i], &request, h.db)
+			}
 
 		}
 	}
@@ -143,35 +146,22 @@ func createMessage(data []byte, db gorm.DB) error {
 	return nil
 }
 
-// create consumer
-// func createConsumer(data []byte, db gorm.DB) error {
-//   var request types.ReceiveRequest
-//   err := json.Unmarshal(data, &request)
-// 	if err != nil {
-// 		return errors.New("error unmarshalling message")
-// 	}
-
-// }
-
 func randRange(min, max int) int {
 	return rand.IntN(max+1-min) + min
 }
 
-func sendMessages(req *types.ReceiveRequest, h *CommandHandler) error {
-	// var wg sync.WaitGroup
-	for i := 0; i < len(h.consumerSockets); i++ {
-		// wg.Add(1)
-		consumer := h.consumerSockets[i]
-
+func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db *gorm.DB) error {
+	for {
 		var messages []types.Message
+		db.Limit(req.BatchSize).Where("queue_name = ? AND partition IN ?", consumer.QueueName, consumer.Partitions).Find(&messages)
 
-		//
-		h.db.Limit(req.BatchSize).Where("queue_name = ? AND partition IN ?", consumer.QueueName, consumer.Partitions).Find(&messages)
-
-		consumer.Conn.Writer.Write(&types.MessageBatch{
+		err := consumer.Conn.Writer.Write(&types.MessageBatch{
 			Messages: messages,
 		})
+		if err != nil {
+			return err
+		}
+
+		// TODO: ack messages
 	}
-	// wg.Wait()
-	return nil
 }

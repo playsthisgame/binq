@@ -39,19 +39,29 @@ type ConsumerRequest struct {
 	BatchSize int
 }
 
-func NewConsumerRequest(queueName string, batchSize int) *ConsumerRequest {
-	return &ConsumerRequest{
-		QueueName: queueName,
-		BatchSize: batchSize,
-	}
-}
-
 func (r *ConsumerRequest) MarshalBinary() (data []byte, err error) {
 	return json.Marshal(r)
 }
 
 func (r *ConsumerRequest) UnmarshalBinary(bytes []byte) error {
 	err := json.Unmarshal(bytes, r)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+type ConsumerAck struct {
+	QueueName  string
+	MessageIds []string
+}
+
+func (a *ConsumerAck) MarshalBinary() (data []byte, err error) {
+	return json.Marshal(a)
+}
+
+func (a *ConsumerAck) UnmarshalBinary(bytes []byte) error {
+	err := json.Unmarshal(bytes, a)
 	if err != nil {
 		return err
 	}
