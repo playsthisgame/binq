@@ -174,5 +174,13 @@ func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db
 }
 
 func ackMessages(data []byte, db gorm.DB) error {
+	var ackMessage types.AckMessages
+	err := ackMessage.UnmarshalBinary(data)
+	if err != nil {
+		return err
+	}
+
+	db.Delete(&types.Message{}, ackMessage.MessageIds)
+
 	return nil
 }

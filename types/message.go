@@ -42,7 +42,7 @@ func (m *MessageBatch) UnmarshalBinary(bytes []byte) error {
 }
 
 type AckMessages struct {
-	MessageIds []string
+	MessageIds []uint
 }
 
 func (a *AckMessages) MarshalBinary() (bytes []byte, err error) {
