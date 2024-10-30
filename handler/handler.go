@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/playsthisgame/binq/types"
 
@@ -32,9 +33,13 @@ func NewCommandHandler() *CommandHandler {
 	if err != nil {
 		slog.Error("Error initializing sqlite", "error", err)
 	}
+
 	// automigrate db
 	db.AutoMigrate(&types.Message{})
 	db.AutoMigrate(&types.Queue{})
+
+	// permanently delete soft deleted records older than 1 day, TODO: find a better way to do this
+	db.Unscoped().Where("deleted_at < ?", time.Now().AddDate(0, 0, -1)).Delete(&types.Message{})
 	return &CommandHandler{
 		db:              db,
 		maxPartitions:   100,                                  // TODO: bring this in from a config, defaulting to 100 for now
@@ -59,7 +64,6 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 	cmds[4] = "ACK"
 
 	cmd := cmdWrapper.Command.Command
-	// data := cmdWrapper.Command.Data
 
 	op, ok := cmds[int(cmd)]
 	if ok {
@@ -158,18 +162,35 @@ func randRange(min, max int) int {
 }
 
 func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db *gorm.DB) error {
-	for {
-		var messages []types.Message
-		db.Limit(req.BatchSize).Where("queue_name = ? AND partition IN ?", consumer.QueueName, consumer.Partitions).Find(&messages)
 
-		err := consumer.Conn.Writer.Write(&types.MessageBatch{
-			Messages: messages,
-		})
+	for {
+		var msgs []types.Message
+		db.Limit(req.BatchSize).Where("queue_name = ? AND partition IN ? AND (lock_date_time = NULL OR lock_date_time <= ?)", consumer.QueueName, consumer.Partitions, time.Now()).Find(&msgs)
+
+		msgBatch := &types.MessageBatch{
+			Messages: msgs,
+		}
+
+		// lock messages
+		var ids = make([]uint, len(msgs))
+		for i, msg := range msgs {
+			ids[i] = msg.ID
+		}
+		db.Table("messages").Where("id IN ?", ids).Updates(types.Message{LockDateTime: time.Now().Add(time.Minute * 10)})
+
+		// marshal data
+		data, err := msgBatch.MarshalBinary()
 		if err != nil {
 			return err
 		}
 
-		// TODO: add a lockedDateTime field to the message, so that other consumers/this consumer cant get the message until its unlocked, then have the ack remove the messages from the queue.
+		// write to client
+		err = consumer.Conn.Writer.Write(&types.TCPCommand{
+			Data: data,
+		})
+		if err != nil {
+			return err
+		}
 	}
 }
 
@@ -180,7 +201,10 @@ func ackMessages(data []byte, db gorm.DB) error {
 		return err
 	}
 
-	db.Delete(&types.Message{}, ackMessage.MessageIds)
+	if len(ackMessage.MessageIds) > 0 {
+		var messages []types.Message
+		db.Delete(&messages, ackMessage.MessageIds)
+	}
 
 	return nil
 }

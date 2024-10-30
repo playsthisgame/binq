@@ -2,15 +2,17 @@ package types
 
 import (
 	"encoding/json"
+	"time"
 
 	"gorm.io/gorm"
 )
 
 type Message struct {
 	gorm.Model
-	QueueName string `gorm:"index"`
-	Partition int    `gorm:"index"`
-	Data      []byte
+	QueueName    string    `gorm:"index"`
+	Partition    int       `gorm:"index"`
+	LockDateTime time.Time `gorm:"index"`
+	Data         []byte
 }
 
 func (m *Message) MarshalBinary() (bytes []byte, err error) {
