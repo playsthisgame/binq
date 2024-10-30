@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/playsthisgame/binq/types"
 
@@ -32,9 +33,13 @@ func NewCommandHandler() *CommandHandler {
 	if err != nil {
 		slog.Error("Error initializing sqlite", "error", err)
 	}
+
 	// automigrate db
 	db.AutoMigrate(&types.Message{})
 	db.AutoMigrate(&types.Queue{})
+
+	// permanently delete soft deleted records older than 1 day, TODO: find a better way to do this
+	db.Unscoped().Where("deleted_at < ?", time.Now().AddDate(0, 0, -1)).Delete(&types.Message{})
 	return &CommandHandler{
 		db:              db,
 		maxPartitions:   100,                                  // TODO: bring this in from a config, defaulting to 100 for now
@@ -44,20 +49,21 @@ func NewCommandHandler() *CommandHandler {
 
 func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 
-	// TODO: figure out how to use iota
+	// TODO: figure out how to use iota,also move this to the struct?
 	const (
 		create  = "CREATE"
-		produce = "PRODUCE"
-		consume = "CONSUME"
+		publish = "PUBLISH"
+		receive = "RECEIVE"
+		ack     = "ACK"
 	)
 
 	cmds := make(map[int]string)
 	cmds[1] = "CREATE"
-	cmds[2] = "PRODUCE"
-	cmds[3] = "CONSUME"
+	cmds[2] = "PUBLISH"
+	cmds[3] = "RECEIVE"
+	cmds[4] = "ACK"
 
 	cmd := cmdWrapper.Command.Command
-	// data := cmdWrapper.Command.Data
 
 	op, ok := cmds[int(cmd)]
 	if ok {
@@ -67,13 +73,13 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 			if err != nil {
 				slog.Error("Error while create queue")
 			}
-		case produce:
+		case publish:
 			err := createMessage(cmdWrapper.Command.Data, *h.db)
 			if err != nil {
 				slog.Error("Error while create queue")
 			}
-		case consume:
-			var request types.ReceiveRequest
+		case receive:
+			var request types.ConsumerRequest
 			err := request.UnmarshalBinary(cmdWrapper.Command.Data)
 			if err != nil {
 				slog.Error("error unmarshalling message")
@@ -95,8 +101,16 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 
 			slog.Info("consumer added", "instance", consumerSocket.Instance, "partition count", len(consumerSocket.Partitions), "partitions", consumerSocket.Partitions)
 
-			sendMessages(&request, h)
+			// TODO: when a consumer leaves we need to remove it from the consumerSockets
+			for i := 0; i < len(h.consumerSockets); i++ {
+				go sendMessages(&h.consumerSockets[i], &request, h.db)
+			}
 
+		case ack:
+			err := ackMessages(cmdWrapper.Command.Data, *h.db)
+			if err != nil {
+				slog.Error("Error while create queue")
+			}
 		}
 	}
 }
@@ -143,35 +157,54 @@ func createMessage(data []byte, db gorm.DB) error {
 	return nil
 }
 
-// create consumer
-// func createConsumer(data []byte, db gorm.DB) error {
-//   var request types.ReceiveRequest
-//   err := json.Unmarshal(data, &request)
-// 	if err != nil {
-// 		return errors.New("error unmarshalling message")
-// 	}
-
-// }
-
 func randRange(min, max int) int {
 	return rand.IntN(max+1-min) + min
 }
 
-func sendMessages(req *types.ReceiveRequest, h *CommandHandler) error {
-	var wg sync.WaitGroup
-	for i := 0; i < len(h.consumerSockets); i++ {
-		wg.Add(1)
-		consumer := h.consumerSockets[i]
+func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db *gorm.DB) error {
 
-		var messages []types.Message
+	for {
+		var msgs []types.Message
+		db.Limit(req.BatchSize).Where("queue_name = ? AND partition IN ? AND (lock_date_time = NULL OR lock_date_time <= ?)", consumer.QueueName, consumer.Partitions, time.Now()).Find(&msgs)
 
-		//.Limit(req.BatchSize)
-		h.db.Where("queue_name = ? AND partition IN ?", consumer.QueueName, consumer.Partitions).Find(&messages)
+		msgBatch := &types.MessageBatch{
+			Messages: msgs,
+		}
 
-		consumer.Conn.Writer.Write(&types.MessageBatch{
-			Messages: messages,
+		// lock messages
+		var ids = make([]uint, len(msgs))
+		for i, msg := range msgs {
+			ids[i] = msg.ID
+		}
+		db.Table("messages").Where("id IN ?", ids).Updates(types.Message{LockDateTime: time.Now().Add(time.Minute * 10)})
+
+		// marshal data
+		data, err := msgBatch.MarshalBinary()
+		if err != nil {
+			return err
+		}
+
+		// write to client
+		err = consumer.Conn.Writer.Write(&types.TCPCommand{
+			Data: data,
 		})
+		if err != nil {
+			return err
+		}
 	}
-	wg.Wait()
+}
+
+func ackMessages(data []byte, db gorm.DB) error {
+	var ackMessage types.AckMessages
+	err := ackMessage.UnmarshalBinary(data)
+	if err != nil {
+		return err
+	}
+
+	if len(ackMessage.MessageIds) > 0 {
+		var messages []types.Message
+		db.Delete(&messages, ackMessage.MessageIds)
+	}
+
 	return nil
 }
