@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,10 +53,11 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 
 	// TODO: figure out how to use iota,also move this to the struct?
 	const (
-		create  = "CREATE"
-		publish = "PUBLISH"
-		receive = "RECEIVE"
-		ack     = "ACK"
+		create     = "CREATE"
+		publish    = "PUBLISH"
+		receive    = "RECEIVE"
+		ack        = "ACK"
+		disconnect = "DISCONNECT"
 	)
 
 	cmds := make(map[int]string)
@@ -62,6 +65,7 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 	cmds[2] = "PUBLISH"
 	cmds[3] = "RECEIVE"
 	cmds[4] = "ACK"
+	cmds[5] = "DISCONNECT"
 
 	cmd := cmdWrapper.Command.Command
 
@@ -79,6 +83,7 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 				slog.Error("Error while create queue")
 			}
 		case receive:
+			// TODO: theres a bug when you just publish messages it seems to add it to the consumerSockets and rebalance
 			var request types.ConsumerRequest
 			err := request.UnmarshalBinary(cmdWrapper.Command.Data)
 			if err != nil {
@@ -91,6 +96,7 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 				slog.Error("Error create client socket", "id", cmdWrapper.Conn.Id)
 			}
 			// if a consumerSocket already exists then rebalance
+			// TODO: theres some issue here when adding a new consumer
 			if len(h.consumerSockets) > 0 {
 				rebalanceConsumers(&h.consumerSockets, cmdWrapper.Conn.Id, h.maxPartitions)
 			}
@@ -102,6 +108,7 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 			slog.Info("consumer added", "instance", consumerSocket.Instance, "partition count", len(consumerSocket.Partitions), "partitions", consumerSocket.Partitions)
 
 			// TODO: when a consumer leaves we need to remove it from the consumerSockets
+			// loop through each consumer and send the data
 			for i := 0; i < len(h.consumerSockets); i++ {
 				go sendMessages(&h.consumerSockets[i], &request, h.db)
 			}
@@ -111,12 +118,28 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 			if err != nil {
 				slog.Error("Error while create queue")
 			}
+		case disconnect:
+			// get connId from command data
+			var connId int8
+			buf := bytes.NewBuffer(cmdWrapper.Command.Data)
+			binary.Read(buf, binary.LittleEndian, &connId)
+			// connId := binary.BigEndian.Uint16(cmdWrapper.Command.Data)
+
+			// doing a downward loop to avoid issue when removing from the array
+			for i := len(h.consumerSockets) - 1; i >= 0; i-- {
+				if h.consumerSockets[i].Conn.Id == int(connId) {
+					// remove from consumerSockets
+					h.consumerSockets = append(h.consumerSockets[:i],
+						h.consumerSockets[i+1:]...)
+					rebalanceConsumers(&h.consumerSockets, len(h.consumerSockets), h.maxPartitions)
+				}
+			}
 		}
 	}
 }
 
 func rebalanceConsumers(consumerSockets *[]types.ConsumerSocket, totalInstance int, maxPartitions int) {
-	// TODO: there seems to be some kind of bug when getting to around 20 instances
+	// TODO: there seems to be some kind of bug when getting to around 20 instances, it might just be because the rebalancing isnt working
 	for i := 0; i < len(*consumerSockets); i++ {
 		(*consumerSockets)[i].Partitions = types.SetPartitions((*consumerSockets)[i].Instance, totalInstance, maxPartitions)
 		slog.Info("consumer rebalanced", "instance", (*consumerSockets)[i].Instance, "partition count", len((*consumerSockets)[i].Partitions), "partitions", (*consumerSockets)[i].Partitions)
@@ -153,7 +176,7 @@ func createMessage(data []byte, db gorm.DB) error {
 	if res.Error != nil {
 		return errors.New(fmt.Sprintf("Error creating message for %s", msg.QueueName))
 	}
-	slog.Info("Message Created for Queue", "queue", msg.QueueName)
+	// slog.Info("Message Created for Queue", "queue", msg.QueueName)
 	return nil
 }
 
@@ -171,12 +194,14 @@ func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db
 			Messages: msgs,
 		}
 
-		// lock messages
+		// lock messages for 10 minutes, this is so that if they arent ack they will be available again. This number should be configurable
 		var ids = make([]uint, len(msgs))
 		for i, msg := range msgs {
 			ids[i] = msg.ID
 		}
-		db.Table("messages").Where("id IN ?", ids).Updates(types.Message{LockDateTime: time.Now().Add(time.Minute * 10)})
+		if len(ids) > 0 {
+			db.Table("messages").Where("id IN ?", ids).Updates(types.Message{LockDateTime: time.Now().Add(time.Minute * 10)})
+		}
 
 		// marshal data
 		data, err := msgBatch.MarshalBinary()

@@ -1,6 +1,7 @@
 package tcp
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -82,6 +83,12 @@ func readConnection(tcp *TCP, conn *types.Connection) {
 			} else {
 				slog.Error("received error while reading from socket", "id", conn.Id, "error", err)
 			}
+			// if theres an error send a disconnect command to rebalance
+			bs := make([]byte, 4)
+			binary.LittleEndian.PutUint32(bs, uint32(conn.Id))
+
+			disconnect := types.TCPCommand{Command: 5, Data: bs}
+			tcp.FromSockets <- types.TCPCommandWrapper{Command: &disconnect, Conn: conn}
 			break
 		}
 
