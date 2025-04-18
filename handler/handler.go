@@ -225,6 +225,27 @@ func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db
 			Where("queue_name = ? AND partition IN ? AND (lock_date_time = NULL OR lock_date_time <= ?)", consumer.QueueName, consumer.Partitions, time.Now()).
 			Find(&msgs)
 
+		// if msgs == nil || len(msgs) == 0 {
+		// 	// no messages exist send an empty array
+		// 	msgBatch := &types.MessageBatch{
+		// 		Messages: make([]types.Message, 0),
+		// 	}
+
+		// 	data, err := msgBatch.MarshalBinary()
+		// 	if err != nil {
+		// 		return err
+		// 	}
+
+		// 	err = consumer.Conn.Writer.Write(&types.TCPCommand{
+		// 		Data: data,
+		// 	})
+		// 	if err != nil {
+		// 		// TODO: if theres an error sending to the consumer, then remove it from consumer sockets
+		// 		return err
+		// 	}
+		// 	return nil
+		// }
+
 		msgBatch := &types.MessageBatch{
 			Messages: msgs,
 		}
@@ -234,9 +255,11 @@ func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db
 		for i, msg := range msgs {
 			ids[i] = msg.ID
 		}
-		db.Table("messages").
-			Where("id IN ?", ids).
-			Updates(types.Message{LockDateTime: time.Now().Add(time.Minute * 10)})
+		if len(ids) > 0 {
+			db.Table("messages").
+				Where("id IN ?", ids).
+				Updates(types.Message{LockDateTime: time.Now().Add(time.Minute * 10)})
+		}
 
 		// marshal data
 		data, err := msgBatch.MarshalBinary()
