@@ -7,13 +7,14 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"os"
+	"slices"
 	"sync"
 	"time"
 
-	"github.com/playsthisgame/binq/types"
-
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+
+	"github.com/playsthisgame/binq/types"
 )
 
 type CommandHandler struct {
@@ -41,20 +42,24 @@ func NewCommandHandler() *CommandHandler {
 	// permanently delete soft deleted records older than 1 day, TODO: find a better way to do this
 	db.Unscoped().Where("deleted_at < ?", time.Now().AddDate(0, 0, -1)).Delete(&types.Message{})
 	return &CommandHandler{
-		db:              db,
-		maxPartitions:   100,                                  // TODO: bring this in from a config, defaulting to 100 for now
-		consumerSockets: make([]types.ConsumerSocket, 0, 100), //probably can use maxPartitions here
+		db:            db,
+		maxPartitions: 100, // TODO: bring this in from a config, defaulting to 100 for now
+		consumerSockets: make(
+			[]types.ConsumerSocket,
+			0,
+			100,
+		), // probably can use maxPartitions here
 	}
 }
 
 func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
-
 	// TODO: figure out how to use iota,also move this to the struct?
 	const (
 		create  = "CREATE"
 		publish = "PUBLISH"
 		receive = "RECEIVE"
 		ack     = "ACK"
+		oust    = "OUST"
 	)
 
 	cmds := make(map[int]string)
@@ -62,6 +67,7 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 	cmds[2] = "PUBLISH"
 	cmds[3] = "RECEIVE"
 	cmds[4] = "ACK"
+	cmds[5] = "OUST"
 
 	cmd := cmdWrapper.Command.Command
 
@@ -85,41 +91,92 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 				slog.Error("error unmarshalling message")
 			}
 
+			consumerCount := len(h.consumerSockets) + 1
+
 			// make a new consumer socket
-			consumerSocket, err := types.NewConsumerSocket(cmdWrapper.Conn.Id, cmdWrapper.Conn.Id, h.maxPartitions, request.QueueName, *cmdWrapper.Conn)
+			consumerSocket, err := types.NewConsumerSocket(
+				consumerCount,
+				consumerCount,
+				h.maxPartitions,
+				request.QueueName,
+				*cmdWrapper.Conn,
+			)
 			if err != nil {
 				slog.Error("Error create client socket", "id", cmdWrapper.Conn.Id)
-			}
-			// if a consumerSocket already exists then rebalance
-			if len(h.consumerSockets) > 0 {
-				rebalanceConsumers(&h.consumerSockets, cmdWrapper.Conn.Id, h.maxPartitions)
 			}
 
 			h.mutex.Lock()
 			h.consumerSockets = append(h.consumerSockets, *consumerSocket)
 			h.mutex.Unlock()
 
-			slog.Info("consumer added", "instance", consumerSocket.Instance, "partition count", len(consumerSocket.Partitions), "partitions", consumerSocket.Partitions)
+			rebalanceConsumers(&h.consumerSockets, len(h.consumerSockets), h.maxPartitions)
 
-			// TODO: when a consumer leaves we need to remove it from the consumerSockets
-			for i := 0; i < len(h.consumerSockets); i++ {
-				go sendMessages(&h.consumerSockets[i], &request, h.db)
-			}
+			slog.Info(
+				"consumer added",
+				"instance",
+				consumerSocket.Instance,
+				"partition count",
+				len(consumerSocket.Partitions),
+				"partitions",
+				consumerSocket.Partitions,
+			)
+
+			go sendMessages(consumerSocket, &request, h.db)
 
 		case ack:
 			err := ackMessages(cmdWrapper.Command.Data, *h.db)
 			if err != nil {
 				slog.Error("Error while create queue")
 			}
+		case oust:
+			// oust consumer socket
+			for i := len(h.consumerSockets) - 1; i >= 0; i-- {
+				if h.consumerSockets[i].Conn.Id == cmdWrapper.Conn.Id {
+					h.mutex.Lock()
+					h.consumerSockets = slices.Delete(h.consumerSockets, i, i+1)
+					h.mutex.Unlock()
+
+					slog.Info("ousting consumer", "id", cmdWrapper.Conn.Id)
+					break
+				}
+			}
+			// reset the consumer socket instances
+			for i := range h.consumerSockets {
+				h.consumerSockets[i].Instance = i + 1
+			}
+			// rebalance after ousting
+			if len(h.consumerSockets) > 0 {
+				rebalanceConsumers(
+					&h.consumerSockets,
+					len(h.consumerSockets),
+					h.maxPartitions,
+				)
+			}
 		}
 	}
 }
 
-func rebalanceConsumers(consumerSockets *[]types.ConsumerSocket, totalInstance int, maxPartitions int) {
+func rebalanceConsumers(
+	consumerSockets *[]types.ConsumerSocket,
+	totalInstance int,
+	maxPartitions int,
+) {
 	// TODO: there seems to be some kind of bug when getting to around 20 instances
 	for i := 0; i < len(*consumerSockets); i++ {
-		(*consumerSockets)[i].Partitions = types.SetPartitions((*consumerSockets)[i].Instance, totalInstance, maxPartitions)
-		slog.Info("consumer rebalanced", "instance", (*consumerSockets)[i].Instance, "partition count", len((*consumerSockets)[i].Partitions), "partitions", (*consumerSockets)[i].Partitions)
+		(*consumerSockets)[i].Partitions = types.SetPartitions(
+			(*consumerSockets)[i].Instance,
+			totalInstance,
+			maxPartitions,
+		)
+		slog.Info(
+			"consumer rebalanced",
+			"instance",
+			(*consumerSockets)[i].Instance,
+			"partition count",
+			len((*consumerSockets)[i].Partitions),
+			"partitions",
+			(*consumerSockets)[i].Partitions,
+		)
 	}
 }
 
@@ -162,21 +219,24 @@ func randRange(min, max int) int {
 }
 
 func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db *gorm.DB) error {
-
 	for {
 		var msgs []types.Message
-		db.Limit(req.BatchSize).Where("queue_name = ? AND partition IN ? AND (lock_date_time = NULL OR lock_date_time <= ?)", consumer.QueueName, consumer.Partitions, time.Now()).Find(&msgs)
+		db.Limit(req.BatchSize).
+			Where("queue_name = ? AND partition IN ? AND (lock_date_time = NULL OR lock_date_time <= ?)", consumer.QueueName, consumer.Partitions, time.Now()).
+			Find(&msgs)
 
 		msgBatch := &types.MessageBatch{
 			Messages: msgs,
 		}
 
 		// lock messages
-		var ids = make([]uint, len(msgs))
+		ids := make([]uint, len(msgs))
 		for i, msg := range msgs {
 			ids[i] = msg.ID
 		}
-		db.Table("messages").Where("id IN ?", ids).Updates(types.Message{LockDateTime: time.Now().Add(time.Minute * 10)})
+		db.Table("messages").
+			Where("id IN ?", ids).
+			Updates(types.Message{LockDateTime: time.Now().Add(time.Minute * 10)})
 
 		// marshal data
 		data, err := msgBatch.MarshalBinary()
@@ -189,6 +249,7 @@ func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db
 			Data: data,
 		})
 		if err != nil {
+			// TODO: if theres an error sending to the consumer, then remove it from consumer sockets
 			return err
 		}
 	}

@@ -6,7 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
-
+	"slices"
 	"sync"
 	"syscall"
 
@@ -75,13 +75,21 @@ func NewTCPServer(port uint16) (*TCP, error) {
 func readConnection(tcp *TCP, conn *types.Connection) {
 	for {
 		cmd, err := conn.Next() // once you have the command you can do whatever youd like with the data
-
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				slog.Debug("socket received EOF", "id", conn.Id, "error", err)
 			} else {
 				slog.Error("received error while reading from socket", "id", conn.Id, "error", err)
 			}
+			// remove from sockets
+			for i := len(tcp.sockets) - 1; i >= 0; i-- {
+				if tcp.sockets[i].Id == conn.Id {
+					tcp.sockets = slices.Delete(tcp.sockets, i, i+1)
+					break
+				}
+			}
+			// TODO: send a drop command to remove the socket from the consumers if its a consumer socket
+			tcp.FromSockets <- types.TCPCommandWrapper{Command: &types.TCPCommand{Command: 5}, Conn: conn}
 			break
 		}
 

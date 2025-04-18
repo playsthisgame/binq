@@ -11,7 +11,8 @@ import (
 
 var id int = 0
 
-const MAX_PACKET_LENGTH = 10_000
+// const MAX_PACKET_LENGTH = 10_000
+const MAX_PACKET_LENGTH = 65535 // TODO: stream this data
 
 var MAX_PACKET_ERROR = errors.New("maximum packet size exceeded")
 
@@ -47,7 +48,6 @@ func (c *Connection) Next() (*TCPCommand, error) {
 
 	var cmd TCPCommand
 	err = cmd.UnmarshalBinary(cmdBytes)
-
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,6 @@ func (f *FrameReader) Read() ([]byte, error) {
 		}
 
 		n, err := f.Reader.Read(f.scratch)
-
 		if err != nil {
 			return nil, err
 		}
@@ -136,7 +135,6 @@ func (w *FrameWriter) Write(bytes encoding.BinaryMarshaler) error {
 
 	for length > 0 {
 		n, err := w.Writer.Write(data)
-
 		// TODO: what's the error that means i need to wait for a moment to
 		// write more?
 		if err != nil {

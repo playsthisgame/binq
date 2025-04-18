@@ -13,9 +13,21 @@ type ConsumerSocket struct {
 	QueueName  string
 }
 
-func NewConsumerSocket(instance int, totalInstances int, maxPartitions int, queueName string, conn Connection) (*ConsumerSocket, error) {
-	if instance > maxPartitions {
-		return nil, errors.New(fmt.Sprintf("number of instances %d cannot exceed maxPartitions %d \n", instance, maxPartitions))
+func NewConsumerSocket(
+	instance int,
+	totalInstances int,
+	maxPartitions int,
+	queueName string,
+	conn Connection,
+) (*ConsumerSocket, error) {
+	if totalInstances > maxPartitions {
+		return nil, errors.New(
+			fmt.Sprintf(
+				"number of instances %d cannot exceed maxPartitions %d \n",
+				instance,
+				maxPartitions,
+			),
+		)
 	}
 	return &ConsumerSocket{
 		Instance:   instance,
@@ -23,9 +35,9 @@ func NewConsumerSocket(instance int, totalInstances int, maxPartitions int, queu
 		Partitions: SetPartitions(instance, totalInstances, maxPartitions),
 		QueueName:  queueName,
 	}, nil
-
 }
 
+// TODO: this method seems to be wrong, when ousting
 func SetPartitions(instance int, totalInstances int, maxPartitions int) []int {
 	partitions := []int{}
 	for i := instance; i <= maxPartitions; i += totalInstances {
