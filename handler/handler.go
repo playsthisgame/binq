@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
 	"os"
 	"slices"
 	"sync"
@@ -15,7 +14,10 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/playsthisgame/binq/types"
+	"github.com/playsthisgame/binq/utils"
 )
+
+const batchSize = 10
 
 type CommandHandler struct {
 	db              *gorm.DB
@@ -24,7 +26,7 @@ type CommandHandler struct {
 	mutex           sync.RWMutex
 }
 
-func NewCommandHandler() *CommandHandler {
+func NewCommandHandler(maxPartitions *int) *CommandHandler {
 	// create .store if not exists
 	path := ".store"
 	_ = os.MkdirAll(path, os.ModePerm)
@@ -43,16 +45,16 @@ func NewCommandHandler() *CommandHandler {
 	db.Unscoped().Where("deleted_at < ?", time.Now().AddDate(0, 0, -1)).Delete(&types.Message{})
 	return &CommandHandler{
 		db:            db,
-		maxPartitions: 100, // TODO: bring this in from a config, defaulting to 100 for now
+		maxPartitions: *maxPartitions,
 		consumerSockets: make(
 			[]types.ConsumerSocket,
 			0,
-			100,
+			*maxPartitions,
 		), // probably can use maxPartitions here
 	}
 }
 
-func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
+func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) error {
 	// TODO: figure out how to use iota,also move this to the struct?
 	const (
 		create  = "CREATE"
@@ -78,17 +80,21 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 			err := createQueue(cmdWrapper.Command.Data, *h.db)
 			if err != nil {
 				slog.Error("Error while create queue")
+				return err
 			}
 		case publish:
-			err := createMessage(cmdWrapper.Command.Data, *h.db)
+			err := createMessage(cmdWrapper.Command.Data, h.maxPartitions, *h.db)
 			if err != nil {
 				slog.Error("Error while create queue")
+				return err
 			}
 		case receive:
 			var request types.ConsumerRequest
 			err := request.UnmarshalBinary(cmdWrapper.Command.Data)
 			if err != nil {
 				slog.Error("error unmarshalling message")
+				cmdWrapper.Conn.Close()
+				return err
 			}
 
 			consumerCount := len(h.consumerSockets) + 1
@@ -102,14 +108,16 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 				*cmdWrapper.Conn,
 			)
 			if err != nil {
-				slog.Error("Error create client socket", "id", cmdWrapper.Conn.Id)
+				slog.Error("Error create client socket", "id", cmdWrapper.Conn.Id, "error", err)
+				cmdWrapper.Conn.Close()
+				return err
 			}
 
 			h.mutex.Lock()
 			h.consumerSockets = append(h.consumerSockets, *consumerSocket)
 			h.mutex.Unlock()
 
-			rebalanceConsumers(&h.consumerSockets, len(h.consumerSockets), h.maxPartitions)
+			rebalanceConsumers(h)
 
 			slog.Info(
 				"consumer added",
@@ -146,37 +154,31 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) {
 			}
 			// rebalance after ousting
 			if len(h.consumerSockets) > 0 {
-				rebalanceConsumers(
-					&h.consumerSockets,
-					len(h.consumerSockets),
-					h.maxPartitions,
-				)
+				rebalanceConsumers(h)
 			}
 		}
 	}
+	return nil
 }
 
-func rebalanceConsumers(
-	consumerSockets *[]types.ConsumerSocket,
-	totalInstance int,
-	maxPartitions int,
-) {
-	// TODO: there seems to be some kind of bug when getting to around 20 instances
-	for i := 0; i < len(*consumerSockets); i++ {
-		(*consumerSockets)[i].Partitions = types.SetPartitions(
-			(*consumerSockets)[i].Instance,
-			totalInstance,
-			maxPartitions,
+func rebalanceConsumers(h *CommandHandler) {
+	for i := range h.consumerSockets {
+		// h.mutex.Lock()
+		(h.consumerSockets)[i].Partitions = types.SetPartitions(
+			(h.consumerSockets)[i].Instance,
+			len(h.consumerSockets),
+			h.maxPartitions,
 		)
 		slog.Info(
 			"consumer rebalanced",
 			"instance",
-			(*consumerSockets)[i].Instance,
+			(h.consumerSockets)[i].Instance,
 			"partition count",
-			len((*consumerSockets)[i].Partitions),
+			len((h.consumerSockets)[i].Partitions),
 			"partitions",
-			(*consumerSockets)[i].Partitions,
+			(h.consumerSockets)[i].Partitions,
 		)
+		// h.mutex.Unlock()
 	}
 }
 
@@ -196,15 +198,14 @@ func createQueue(data []byte, db gorm.DB) error {
 }
 
 // assign the partition to the message here
-func createMessage(data []byte, db gorm.DB) error {
+func createMessage(data []byte, maxPartitions int, db gorm.DB) error {
 	var msg types.Message
 	err := msg.UnmarshalBinary(data)
 	if err != nil {
 		return errors.New("error unmarshalling message")
 	}
 	// assign the partition
-	// TODO: just using 100 here but we should get the maxPartitions from the queue, without having to query the queue everytime.
-	msg.Partition = randRange(1, 100)
+	msg.Partition = utils.RandRange(1, maxPartitions)
 
 	res := db.Create(&msg)
 	if res.Error != nil {
@@ -214,52 +215,19 @@ func createMessage(data []byte, db gorm.DB) error {
 	return nil
 }
 
-func randRange(min, max int) int {
-	return rand.IntN(max+1-min) + min
-}
-
 func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db *gorm.DB) error {
 	for {
 		var msgs []types.Message
 		db.Limit(req.BatchSize).
-			Where("queue_name = ? AND partition IN ? AND (lock_date_time = NULL OR lock_date_time <= ?)", consumer.QueueName, consumer.Partitions, time.Now()).
+			Where("queue_name = ? AND partition IN ? AND (lock_date_time IS NULL OR lock_date_time <= ?)", consumer.QueueName, consumer.Partitions, time.Now()).
 			Find(&msgs)
-
-		// if msgs == nil || len(msgs) == 0 {
-		// 	// no messages exist send an empty array
-		// 	msgBatch := &types.MessageBatch{
-		// 		Messages: make([]types.Message, 0),
-		// 	}
-
-		// 	data, err := msgBatch.MarshalBinary()
-		// 	if err != nil {
-		// 		return err
-		// 	}
-
-		// 	err = consumer.Conn.Writer.Write(&types.TCPCommand{
-		// 		Data: data,
-		// 	})
-		// 	if err != nil {
-		// 		// TODO: if theres an error sending to the consumer, then remove it from consumer sockets
-		// 		return err
-		// 	}
-		// 	return nil
-		// }
 
 		msgBatch := &types.MessageBatch{
 			Messages: msgs,
 		}
 
 		// lock messages
-		ids := make([]uint, len(msgs))
-		for i, msg := range msgs {
-			ids[i] = msg.ID
-		}
-		if len(ids) > 0 {
-			db.Table("messages").
-				Where("id IN ?", ids).
-				Updates(types.Message{LockDateTime: time.Now().Add(time.Minute * 10)})
-		}
+		lockMessages(&msgs, db)
 
 		// marshal data
 		data, err := msgBatch.MarshalBinary()
@@ -278,6 +246,25 @@ func sendMessages(consumer *types.ConsumerSocket, req *types.ConsumerRequest, db
 	}
 }
 
+func lockMessages(msgs *[]types.Message, db *gorm.DB) {
+	ids := make([]uint, len(*msgs))
+	for i, msg := range *msgs {
+		ids[i] = msg.ID
+	}
+
+	if len(ids) > 0 {
+		// Split ids into smaller batches
+		batches := utils.ChunkSlice(ids, batchSize)
+
+		// Process each batch separately
+		for _, batch := range batches {
+			db.Table("messages").
+				Where("id IN ?", batch).
+				Updates(types.Message{LockDateTime: time.Now().Add(time.Minute * 10)})
+		}
+	}
+}
+
 func ackMessages(data []byte, db gorm.DB) error {
 	var ackMessage types.AckMessages
 	err := ackMessage.UnmarshalBinary(data)
@@ -286,8 +273,14 @@ func ackMessages(data []byte, db gorm.DB) error {
 	}
 
 	if len(ackMessage.MessageIds) > 0 {
-		var messages []types.Message
-		db.Delete(&messages, ackMessage.MessageIds)
+		// split messageIds into chunks
+		batches := utils.ChunkSlice(ackMessage.MessageIds, batchSize)
+
+		// process each batch separately
+		for _, batch := range batches {
+			var messages []types.Message
+			db.Delete(&messages, batch)
+		}
 	}
 
 	return nil

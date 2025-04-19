@@ -8,8 +8,10 @@ import (
 	"github.com/playsthisgame/binq/tcp"
 )
 
+// TODO: add the partition size as an option
 type Config struct {
-	Port uint16
+	Port          uint16
+	MaxPartitions int
 }
 
 type BinqServer struct {
@@ -23,7 +25,11 @@ func NewBinqServer(conf *Config) (*BinqServer, error) {
 	slog.SetDefault(logger)
 
 	// init CommandHandler
-	cmdHandler := handler.NewCommandHandler()
+	var maxPartitions int = 100
+	if conf.MaxPartitions != 0 {
+		maxPartitions = conf.MaxPartitions
+	}
+	cmdHandler := handler.NewCommandHandler(&maxPartitions)
 
 	// set up tcp server
 	var port uint16 = 3000

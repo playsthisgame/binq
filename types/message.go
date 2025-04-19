@@ -9,9 +9,10 @@ import (
 
 type Message struct {
 	gorm.Model
-	QueueName    string    `gorm:"index"`
-	Partition    int       `gorm:"index"`
-	LockDateTime time.Time `gorm:"index"`
+	QueueName    string         `gorm:"index:idx_messages_queue_partition_lock,priority:1"`
+	Partition    int            `gorm:"index:idx_messages_queue_partition_lock,priority:2"`
+	LockDateTime time.Time      `gorm:"index:idx_messages_queue_partition_lock,priority:3"`
+	DeletedAt    gorm.DeletedAt `gorm:"index:idx_messages_queue_partition_lock,priority:4"`
 	Data         []byte
 }
 

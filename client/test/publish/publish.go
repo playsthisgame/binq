@@ -25,7 +25,7 @@ func main() {
 
 	// send 100 message to a queue
 
-	for i := range make([]struct{}, 100000) {
+	for i := range make([]struct{}, 10000) {
 		client.Publish(types.Message{
 			QueueName: queueName,
 			Data:      []byte(fmt.Sprintf("this is a message thats sent to binq %v", i)),
