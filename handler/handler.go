@@ -85,7 +85,7 @@ func (h *CommandHandler) Handle(cmdWrapper *types.TCPCommandWrapper) error {
 		case publish:
 			err := createMessage(cmdWrapper.Command.Data, h.maxPartitions, *h.db)
 			if err != nil {
-				slog.Error("Error while create queue")
+				slog.Error("Error while publishing")
 				return err
 			}
 		case receive:
@@ -202,6 +202,7 @@ func createMessage(data []byte, maxPartitions int, db gorm.DB) error {
 	var msg types.Message
 	err := msg.UnmarshalBinary(data)
 	if err != nil {
+		slog.Error("error unmarshalling binary", "error", err)
 		return errors.New("error unmarshalling message")
 	}
 	// assign the partition
@@ -211,7 +212,7 @@ func createMessage(data []byte, maxPartitions int, db gorm.DB) error {
 	if res.Error != nil {
 		return errors.New(fmt.Sprintf("Error creating message for %s", msg.QueueName))
 	}
-	slog.Info("Message Created for Queue", "queue", msg.QueueName)
+	slog.Info("Message Created for Queue", "queue", msg.QueueName, "size", len(msg.Data))
 	return nil
 }
 

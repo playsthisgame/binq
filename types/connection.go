@@ -12,7 +12,8 @@ import (
 var id int = 0
 
 // const MAX_PACKET_LENGTH = 10_000
-const MAX_PACKET_LENGTH = 65535 // TODO: stream this data
+// max size for uint32
+const MAX_PACKET_LENGTH = 4294967295 // TODO: stream this data
 
 var MAX_PACKET_ERROR = errors.New("maximum packet size exceeded")
 
@@ -74,7 +75,7 @@ func (f *FrameReader) canParse(data []byte) bool {
 		return false
 	}
 
-	length := int(binary.BigEndian.Uint16(data[2:]))
+	length := int(binary.BigEndian.Uint32(data[2:]))
 	return len(data) >= HEADER_SIZE+length
 }
 
@@ -83,7 +84,7 @@ func (f *FrameReader) packetLen(data []byte) int {
 		return -1
 	}
 
-	return int(binary.BigEndian.Uint16(data[2:])) + HEADER_SIZE
+	return int(binary.BigEndian.Uint32(data[2:])) + HEADER_SIZE
 }
 
 func (f *FrameReader) Read() ([]byte, error) {
