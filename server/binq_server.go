@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/playsthisgame/binq/handler"
+	"github.com/playsthisgame/binq/store"
 	"github.com/playsthisgame/binq/tcp"
 )
 
@@ -29,7 +30,11 @@ func NewBinqServer(conf *Config) (*BinqServer, error) {
 	if conf.MaxPartitions != 0 {
 		maxPartitions = conf.MaxPartitions
 	}
-	cmdHandler := handler.NewCommandHandler(&maxPartitions)
+	db, err := store.Setup()
+	if err != nil {
+		panic(err)
+	}
+	cmdHandler := handler.NewCommandHandler(db, &maxPartitions)
 
 	// set up tcp server
 	var port uint16 = 3000
@@ -54,6 +59,8 @@ func (b *BinqServer) Listen() {
 	defer b.server.Close()
 	go b.server.Start()
 	slog.Info("Binq started on", "port", b.port)
+
+	go store.ScheduleCleanup()
 
 	for {
 		cmd := <-b.server.FromSockets

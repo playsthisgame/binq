@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"slices"
 	"sync"
 	"time"
 
-	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
 	"github.com/playsthisgame/binq/types"
@@ -26,23 +24,7 @@ type CommandHandler struct {
 	mutex           sync.RWMutex
 }
 
-func NewCommandHandler(maxPartitions *int) *CommandHandler {
-	// create .store if not exists
-	path := ".store"
-	_ = os.MkdirAll(path, os.ModePerm)
-
-	// init db
-	db, err := gorm.Open(sqlite.Open(".store/binq.db"), &gorm.Config{})
-	if err != nil {
-		slog.Error("Error initializing sqlite", "error", err)
-	}
-
-	// automigrate db
-	db.AutoMigrate(&types.Message{})
-	db.AutoMigrate(&types.Queue{})
-
-	// permanently delete soft deleted records older than 1 day, TODO: find a better way to do this
-	db.Unscoped().Where("deleted_at < ?", time.Now().AddDate(0, 0, -1)).Delete(&types.Message{})
+func NewCommandHandler(db *gorm.DB, maxPartitions *int) *CommandHandler {
 	return &CommandHandler{
 		db:            db,
 		maxPartitions: *maxPartitions,
