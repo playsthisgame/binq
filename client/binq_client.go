@@ -152,3 +152,7 @@ func (c *BinqConsumerClient) Acknowledge(ackMessages *types.AckMessages) error {
 	}
 	return nil
 }
+
+func (c *BinqConsumerClient) Stop() {
+	c.Stop()
+}

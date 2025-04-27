@@ -67,3 +67,7 @@ func (b *BinqServer) Listen() {
 		b.cmdHandler.Handle(&cmd)
 	}
 }
+
+func (b *BinqServer) Close() {
+	b.server.Close()
+}
