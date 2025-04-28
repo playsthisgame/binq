@@ -9,11 +9,13 @@ import (
 
 type Message struct {
 	gorm.Model
-	QueueName    string         `gorm:"index:idx_messages_queue_partition_lock,priority:1" json:"queueName"`
-	Partition    int            `gorm:"index:idx_messages_queue_partition_lock,priority:2" json:"partition,omitempty"`
-	LockDateTime time.Time      `gorm:"index:idx_messages_queue_partition_lock,priority:3" json:"lockDateTime,omitempty"`
-	DeletedAt    gorm.DeletedAt `gorm:"index:idx_messages_queue_partition_lock,priority:4" json:"deletedAt,omitempty"`
-	Data         []byte         `                                                          json:"data"`
+	QueueName     string         `gorm:"index:idx_messages_queue_partition_lock,priority:1" json:"queueName"`
+	Partition     int            `gorm:"index:idx_messages_queue_partition_lock,priority:2" json:"partition,omitempty"`
+	LockDateTime  time.Time      `gorm:"index:idx_messages_queue_partition_lock,priority:3" json:"lockDateTime,omitempty"`
+	DeletedAt     gorm.DeletedAt `gorm:"index:idx_messages_queue_partition_lock,priority:4" json:"deletedAt,omitempty"`
+	FileExtension string         `                                                          json:"fileExtention,omitempty"`
+	FileName      string         `                                                          json:"fileName,omitempty"`
+	Data          []byte         `                                                          json:"data"`
 }
 
 func (m *Message) MarshalBinary() (bytes []byte, err error) {
