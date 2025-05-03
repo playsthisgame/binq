@@ -105,6 +105,7 @@ func (tcp *TCP) Start() {
 
 		if err != nil {
 			slog.Error("server error:", "error", err)
+			break
 		}
 
 		newConn := types.NewConnection(conn, id)
