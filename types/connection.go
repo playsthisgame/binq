@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net"
+
+	"github.com/playsthisgame/binq/utils"
 )
 
 var id int = 0
@@ -18,10 +20,11 @@ const MAX_PACKET_LENGTH = 4294967295 // TODO: stream this data
 var MAX_PACKET_ERROR = errors.New("maximum packet size exceeded")
 
 type Connection struct {
-	Reader FrameReader
-	Writer FrameWriter
-	Id     int
-	conn   net.Conn
+	Reader   FrameReader
+	Writer   FrameWriter
+	Id       int
+	conn     net.Conn
+	ConnHash string
 
 	previous []byte
 	scratch  [1024]byte
@@ -30,10 +33,11 @@ type Connection struct {
 // TODO: How do i close?
 func NewConnection(conn net.Conn, id int) Connection {
 	return Connection{
-		Reader: NewFrameReader(conn),
-		Writer: NewFrameWriter(conn),
-		Id:     id,
-		conn:   conn,
+		Reader:   NewFrameReader(conn),
+		Writer:   NewFrameWriter(conn),
+		Id:       id,
+		conn:     conn,
+		ConnHash: utils.GetConnectionHash(conn),
 	}
 }
 

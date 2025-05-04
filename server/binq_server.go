@@ -4,15 +4,17 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/google/uuid"
+
 	"github.com/playsthisgame/binq/handler"
 	"github.com/playsthisgame/binq/store"
 	"github.com/playsthisgame/binq/tcp"
 )
 
-// TODO: add the partition size as an option
 type Config struct {
 	Port          uint16
 	MaxPartitions int
+	Passkey       uuid.UUID
 }
 
 type BinqServer struct {
@@ -42,7 +44,12 @@ func NewBinqServer(conf *Config) (*BinqServer, error) {
 		port = conf.Port
 	}
 
-	server, err := tcp.NewTCPServer(port)
+	var passkey uuid.UUID = uuid.Nil
+	if conf.Passkey != uuid.Nil {
+		passkey = conf.Passkey
+	}
+
+	server, err := tcp.NewTCPServer(port, passkey)
 	if err != nil {
 		slog.Error("Error starting Binq on", "port", port, "Error", err)
 		return nil, err

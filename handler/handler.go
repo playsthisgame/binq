@@ -151,7 +151,7 @@ func rebalanceConsumers(h *CommandHandler) {
 			len(h.consumerSockets),
 			h.maxPartitions,
 		)
-		slog.Info(
+		slog.Debug(
 			"consumer rebalanced",
 			"instance",
 			(h.consumerSockets)[i].Instance,
