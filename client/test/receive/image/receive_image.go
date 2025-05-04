@@ -9,12 +9,18 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/google/uuid"
+
 	"github.com/playsthisgame/binq/client"
 	"github.com/playsthisgame/binq/types"
 )
 
 func main() {
-	b_client, err := client.NewBinqClient(&client.Config{Host: "localhost", Port: 3000})
+	// passkey, _ := uuid.Parse("8edad377-0f0d-421e-b7bb-22421a873918")
+	passkey := uuid.Nil
+	b_client, err := client.NewBinqClient(
+		&client.Config{Host: "localhost", Port: 3000, Passkey: passkey},
+	)
 	if err != nil {
 		slog.Error("Error creating file:", "error", err)
 	}

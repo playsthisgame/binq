@@ -5,12 +5,15 @@ import (
 	"log/slog"
 	"net"
 
+	"github.com/google/uuid"
+
 	"github.com/playsthisgame/binq/types"
 )
 
 type Config struct {
-	Host string
-	Port uint16
+	Host    string
+	Port    uint16
+	Passkey uuid.UUID
 }
 
 type BinqClient struct {
@@ -33,6 +36,10 @@ func NewBinqClient(conf *Config) (*BinqClient, error) {
 	}
 
 	newConn := types.NewConnection(conn, 1)
+
+	if conf.Passkey != uuid.Nil {
+		sendPasskey(conn, conf.Passkey)
+	}
 
 	return &BinqClient{
 		conn: &newConn,
@@ -155,4 +162,26 @@ func (c *BinqConsumerClient) Acknowledge(ackMessages *types.AckMessages) error {
 
 func (c *BinqConsumerClient) Stop() {
 	c.Stop()
+}
+
+func sendPasskey(conn net.Conn, passkey uuid.UUID) {
+	passkeyBuff, err := passkey.MarshalBinary()
+	if err != nil {
+		slog.Error("Error marshalling passkey", "error", err)
+	}
+	// Send the secret key
+	_, err = conn.Write([]byte(passkeyBuff))
+	if err != nil {
+		fmt.Println("Write error:", err)
+		return
+	}
+
+	// Read server's response
+	buf := make([]byte, 1024)
+	n, err := conn.Read(buf)
+	if err != nil {
+		slog.Error("Error reading passkey response from server", "bytesRead", n, "error", err)
+		return
+	}
+	slog.Info("Server response for passkey", "response", string(buf[:n]))
 }
