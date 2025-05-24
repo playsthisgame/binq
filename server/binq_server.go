@@ -78,3 +78,5 @@ func (b *BinqServer) Listen() {
 func (b *BinqServer) Close() {
 	b.server.Close()
 }
+
+// TODO: a func to return the number of available message
