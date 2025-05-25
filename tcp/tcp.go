@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"path/filepath"
 	"slices"
 	"sync"
 	"syscall"
@@ -61,16 +62,15 @@ func (t *TCP) Close() {
 }
 
 func NewTCPServer(port uint16, certPath string) (*TCP, error) {
-	certPath, keyPath, err := cert.Setup(certPath)
+	err := cert.Setup(certPath)
 	if err != nil {
 		slog.Error("error creating cert", "error", err)
 	}
-	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
-	if err != nil {
-		slog.Error("Erroring creating TLS cert", "error", err)
-	}
 
-	config := &tls.Config{Certificates: []tls.Certificate{cert}}
+	config, err := tlsServerConfig(certPath)
+	if err != nil {
+		slog.Error("error getting tls server  config", "error", err)
+	}
 
 	listener, err := tls.Listen("tcp", fmt.Sprintf(":%d", port), config)
 	if err != nil {
@@ -142,4 +142,43 @@ func (tcp *TCP) IsClientConnected(conn net.Conn) bool {
 		}
 	}
 	return false
+}
+
+func loadCertPair(certPath, keyPath string) (tls.Certificate, error) {
+	return tls.LoadX509KeyPair(certPath, keyPath)
+}
+
+func tlsServerConfig(certPath string) (*tls.Config, error) {
+	certMap := map[string]tls.Certificate{}
+	// Load multiple certs
+	localCert, err := loadCertPair(
+		filepath.Join(certPath, "localhost.pem"),
+		filepath.Join(certPath, "localhost-key.pem"),
+	)
+	if err != nil {
+		return nil, err
+	}
+	certMap["localhost"] = localCert
+
+	remoteCert, err := loadCertPair(
+		filepath.Join(certPath, "remotehost.pem"),
+		filepath.Join(certPath, "remotehost-key.pem"),
+	)
+	if err != nil {
+		return nil, err
+	}
+	certMap["remote.host"] = remoteCert
+
+	config := &tls.Config{
+		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+			// Match based on SNI
+			if cert, ok := certMap[hello.ServerName]; ok {
+				return &cert, nil
+			}
+			// Fallback cert
+			return &localCert, nil
+		},
+		MinVersion: tls.VersionTLS12,
+	}
+	return config, nil
 }
