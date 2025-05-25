@@ -1,6 +1,7 @@
 package tcp
 
 import (
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -9,16 +10,13 @@ import (
 	"slices"
 	"sync"
 	"syscall"
-	"time"
 
-	"github.com/google/uuid"
-
+	"github.com/playsthisgame/binq/cert"
 	"github.com/playsthisgame/binq/types"
 	"github.com/playsthisgame/binq/utils"
 )
 
 type TCP struct {
-	passkey     uuid.UUID
 	sockets     []types.Connection
 	listener    net.Listener
 	mutex       sync.RWMutex
@@ -62,8 +60,19 @@ func (t *TCP) Close() {
 	t.listener.Close()
 }
 
-func NewTCPServer(port uint16, passkey uuid.UUID) (*TCP, error) {
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+func NewTCPServer(port uint16, certPath string) (*TCP, error) {
+	certPath, keyPath, err := cert.Setup(certPath)
+	if err != nil {
+		slog.Error("error creating cert", "error", err)
+	}
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		slog.Error("Erroring creating TLS cert", "error", err)
+	}
+
+	config := &tls.Config{Certificates: []tls.Certificate{cert}}
+
+	listener, err := tls.Listen("tcp", fmt.Sprintf(":%d", port), config)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +83,6 @@ func NewTCPServer(port uint16, passkey uuid.UUID) (*TCP, error) {
 		listener:    listener,
 		FromSockets: make(chan types.TCPCommandWrapper, 100),
 		mutex:       sync.RWMutex{},
-		passkey:     passkey,
 	}, nil
 }
 
@@ -112,18 +120,6 @@ func (tcp *TCP) Start() {
 			slog.Error("server error:", "error", err)
 			break
 		}
-
-		// check clients passkey
-		if tcp.passkey != uuid.Nil && !tcp.IsClientConnected(conn) {
-			if !hasValidPasskey(conn, tcp.passkey) {
-				slog.Info("Invalid passkey")
-				conn.Write([]byte("ERROR: Invalid passkey"))
-				conn.Close()
-				continue
-			}
-			slog.Info("passkey valid")
-			conn.Write([]byte("passkey authenticated"))
-		}
 		id++
 
 		newConn := types.NewConnection(conn, id)
@@ -146,36 +142,4 @@ func (tcp *TCP) IsClientConnected(conn net.Conn) bool {
 		}
 	}
 	return false
-}
-
-func hasValidPasskey(conn net.Conn, passkey uuid.UUID) bool {
-	if passkey == uuid.Nil {
-		return true
-	}
-
-	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
-	defer conn.SetReadDeadline(time.Time{}) // always clear
-
-	buf := make([]byte, 16) // UUID is 16 bytes
-	n, err := io.ReadFull(conn, buf)
-	if err != nil {
-		slog.Error("Error reading passkey",
-			"remoteAddr", conn.RemoteAddr(),
-			"bytesRead", n,
-			"error", err,
-		)
-		return false
-	}
-
-	clientPasskey, err := uuid.FromBytes(buf)
-	if err != nil {
-		slog.Error("Error converting passkey",
-			"remoteAddr", conn.RemoteAddr(),
-			"bytesRead", n,
-			"error", err,
-		)
-		return false
-	}
-
-	return clientPasskey == passkey
 }
