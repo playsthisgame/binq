@@ -7,31 +7,37 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"os"
 	"path/filepath"
 	"time"
 )
 
-func Setup(path string) (string, string, error) {
+func Setup(path string) error {
 	// create .cert if not exists
 	_ = os.MkdirAll(path, os.ModePerm)
 
 	// set cert and key paths
-	certPath := filepath.Join(path, "cert.pem")
-	keyPath := filepath.Join(path, "key.pem")
+	remoteCertPath := filepath.Join(path, "remotehost.pem")
+	remoteKeyPath := filepath.Join(path, "remotehost-key.pem")
+	localCertPath := filepath.Join(path, "localhost.pem")
+	localKeyPath := filepath.Join(path, "localhost-key.pem")
 
 	// generate cert if missing
-	if _, err := os.Stat(certPath); os.IsNotExist(err) {
-		return generateSelfSignedCert(certPath, keyPath)
-	} else {
-		return certPath, keyPath, nil
+	if _, err := os.Stat(remoteCertPath); os.IsNotExist(err) {
+		generateSelfSignedCert(remoteCertPath, remoteKeyPath, false)
 	}
+	if _, err := os.Stat(localCertPath); os.IsNotExist(err) {
+		generateSelfSignedCert(localCertPath, localKeyPath, true)
+	}
+
+	return nil
 }
 
-func generateSelfSignedCert(certPath, keyPath string) (string, string, error) {
+func generateSelfSignedCert(certPath, keyPath string, local bool) error {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
-		return "", "", err
+		return err
 	}
 
 	serialNumber, _ := rand.Int(rand.Reader, big.NewInt(1<<62))
@@ -48,6 +54,15 @@ func generateSelfSignedCert(certPath, keyPath string) (string, string, error) {
 		BasicConstraintsValid: true,
 	}
 
+	if local {
+		template.Subject.CommonName = "localhost"
+		template.DNSNames = []string{"localhost"}
+		template.IPAddresses = []net.IP{
+			net.ParseIP("127.0.0.1"),
+			net.ParseIP("::1"),
+		}
+	}
+
 	derBytes, err := x509.CreateCertificate(
 		rand.Reader,
 		&template,
@@ -56,12 +71,12 @@ func generateSelfSignedCert(certPath, keyPath string) (string, string, error) {
 		priv,
 	)
 	if err != nil {
-		return "", "", err
+		return err
 	}
 
 	certOut, err := os.Create(certPath)
 	if err != nil {
-		return "", "", err
+		return err
 	}
 	defer certOut.Close()
 
@@ -69,7 +84,7 @@ func generateSelfSignedCert(certPath, keyPath string) (string, string, error) {
 
 	keyOut, err := os.Create(keyPath)
 	if err != nil {
-		return "", "", err
+		return err
 	}
 	defer keyOut.Close()
 
@@ -78,5 +93,5 @@ func generateSelfSignedCert(certPath, keyPath string) (string, string, error) {
 		&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)},
 	)
 
-	return certOut.Name(), keyOut.Name(), nil
+	return nil
 }

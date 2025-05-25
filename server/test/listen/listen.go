@@ -8,7 +8,11 @@ import (
 
 func main() {
 	binqServer, err := server.NewBinqServer(
-		&server.Config{Port: 3000, MaxPartitions: 100, CertPath: ".cert/local/"},
+		&server.Config{
+			Port:          3000,
+			MaxPartitions: 100,
+			CertPath:      ".cert/",
+		},
 	)
 	if err != nil {
 		slog.Error("Error starting Binq Server", "Error", err)

@@ -10,7 +10,7 @@ import (
 
 func main() {
 	client, err := client.NewBinqClient(
-		&client.Config{Host: "localhost", Port: 3000, PublicKey: ".cert/local/cert.pem"},
+		&client.Config{Host: "localhost", Port: 3000, PublicKey: ".cert/localhost.pem"},
 	)
 	if err != nil {
 		slog.Error("Error creating file:", "error", err)
