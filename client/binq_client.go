@@ -1,19 +1,19 @@
 package client
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
-	"net"
-
-	"github.com/google/uuid"
+	"os"
 
 	"github.com/playsthisgame/binq/types"
 )
 
 type Config struct {
-	Host    string
-	Port    uint16
-	Passkey uuid.UUID
+	Host      string
+	Port      uint16
+	PublicKey string
 }
 
 type BinqClient struct {
@@ -23,23 +23,33 @@ type BinqClient struct {
 func NewBinqClient(conf *Config) (*BinqClient, error) {
 	addr := fmt.Sprintf("%s:%d", conf.Host, conf.Port)
 
-	server, err := net.ResolveTCPAddr("tcp", addr)
+	// Load the server's public certificate (trusted root cert)
+	rootCAs := x509.NewCertPool()
+	serverCert, err := os.ReadFile(conf.PublicKey)
 	if err != nil {
-		slog.Error("Error resolving server:", "error", err)
+		slog.Error("could not read server public cert", "error", err)
 		return nil, err
 	}
 
-	conn, err := net.DialTCP("tcp", nil, server)
+	ok := rootCAs.AppendCertsFromPEM(serverCert)
+	if !ok {
+		slog.Error("failed to append server cert to root pool")
+		return nil, fmt.Errorf("could not append server cert to root CAs")
+	}
+
+	tlsConfig := &tls.Config{
+		RootCAs: rootCAs,
+		// ServerName: conf.Host, // Optional: required if the server cert has a specific CN/SAN
+	}
+
+	// Dial using TLS
+	conn, err := tls.Dial("tcp", addr, tlsConfig)
 	if err != nil {
-		slog.Error("Error dialing server:", "error", err)
+		slog.Error("TLS connection failed", "error", err)
 		return nil, err
 	}
 
 	newConn := types.NewConnection(conn, 1)
-
-	if conf.Passkey != uuid.Nil {
-		sendPasskey(conn, conf.Passkey)
-	}
 
 	return &BinqClient{
 		conn: &newConn,
@@ -162,26 +172,4 @@ func (c *BinqConsumerClient) Acknowledge(ackMessages *types.AckMessages) error {
 
 func (c *BinqConsumerClient) Stop() {
 	c.Stop()
-}
-
-func sendPasskey(conn net.Conn, passkey uuid.UUID) {
-	passkeyBuff, err := passkey.MarshalBinary()
-	if err != nil {
-		slog.Error("Error marshalling passkey", "error", err)
-	}
-	// Send the secret key
-	_, err = conn.Write([]byte(passkeyBuff))
-	if err != nil {
-		fmt.Println("Write error:", err)
-		return
-	}
-
-	// Read server's response
-	buf := make([]byte, 1024)
-	n, err := conn.Read(buf)
-	if err != nil {
-		slog.Error("Error reading passkey response from server", "bytesRead", n, "error", err)
-		return
-	}
-	slog.Info("Server response for passkey", "response", string(buf[:n]))
 }

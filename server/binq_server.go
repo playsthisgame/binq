@@ -4,8 +4,6 @@ import (
 	"log/slog"
 	"os"
 
-	"github.com/google/uuid"
-
 	"github.com/playsthisgame/binq/handler"
 	"github.com/playsthisgame/binq/store"
 	"github.com/playsthisgame/binq/tcp"
@@ -14,7 +12,7 @@ import (
 type Config struct {
 	Port          uint16
 	MaxPartitions int
-	Passkey       uuid.UUID
+	CertPath      string
 }
 
 type BinqServer struct {
@@ -44,12 +42,12 @@ func NewBinqServer(conf *Config) (*BinqServer, error) {
 		port = conf.Port
 	}
 
-	var passkey uuid.UUID = uuid.Nil
-	if conf.Passkey != uuid.Nil {
-		passkey = conf.Passkey
+	var certPath string = ".cert/"
+	if conf.CertPath != "" {
+		certPath = conf.CertPath
 	}
 
-	server, err := tcp.NewTCPServer(port, passkey)
+	server, err := tcp.NewTCPServer(port, certPath)
 	if err != nil {
 		slog.Error("Error starting Binq on", "port", port, "Error", err)
 		return nil, err
