@@ -1,4 +1,5 @@
 **/.store/*
 **/.cert/*
+**/.vscode/*
 binq
 .DS_Store

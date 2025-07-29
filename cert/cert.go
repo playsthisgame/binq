@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net"
 	"os"
@@ -13,28 +14,24 @@ import (
 	"time"
 )
 
+// Setup generates a single certificate used for both local and LAN access.
 func Setup(path string) error {
-	// create .cert if not exists
 	_ = os.MkdirAll(path, os.ModePerm)
 
-	// set cert and key paths
-	remoteCertPath := filepath.Join(path, "remotehost.pem")
-	remoteKeyPath := filepath.Join(path, "remotehost-key.pem")
-	localCertPath := filepath.Join(path, "localhost.pem")
-	localKeyPath := filepath.Join(path, "localhost-key.pem")
+	certPath := filepath.Join(path, "vibedrive.pem")
+	keyPath := filepath.Join(path, "vibedrive-key.pem")
 
-	// generate cert if missing
-	if _, err := os.Stat(remoteCertPath); os.IsNotExist(err) {
-		generateSelfSignedCert(remoteCertPath, remoteKeyPath, false)
-	}
-	if _, err := os.Stat(localCertPath); os.IsNotExist(err) {
-		generateSelfSignedCert(localCertPath, localKeyPath, true)
+	if _, err := os.Stat(certPath); os.IsNotExist(err) {
+		if err := generateSelfSignedCert(certPath, keyPath); err != nil {
+			return fmt.Errorf("failed to generate certificate: %w", err)
+		}
 	}
 
 	return nil
 }
 
-func generateSelfSignedCert(certPath, keyPath string, local bool) error {
+// generateSelfSignedCert creates a TLS certificate valid for localhost and LAN IPs.
+func generateSelfSignedCert(certPath, keyPath string) error {
 	priv, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		return err
@@ -44,23 +41,28 @@ func generateSelfSignedCert(certPath, keyPath string, local bool) error {
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
 		Subject: pkix.Name{
+			CommonName:   "VibeDrive",
 			Organization: []string{"Vibe Drive"},
 		},
 		NotBefore: time.Now(),
-		NotAfter:  time.Now().Add(365 * 24 * time.Hour), // valid 1 year
+		NotAfter:  time.Now().Add(365 * 24 * time.Hour), // valid for 1 year
 
 		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
-	}
 
-	if local {
-		template.Subject.CommonName = "localhost"
-		template.DNSNames = []string{"localhost"}
-		template.IPAddresses = []net.IP{
+		DNSNames: []string{"localhost"},
+		IPAddresses: []net.IP{
 			net.ParseIP("127.0.0.1"),
 			net.ParseIP("::1"),
-		}
+		},
+	}
+
+	if localIP := getLocalIP(); localIP != nil {
+		template.IPAddresses = append(template.IPAddresses, localIP)
+		fmt.Println("📡 Detected LAN IP for cert:", localIP.String())
+	} else {
+		fmt.Println("⚠️ Warning: could not detect local IP — cert will only be valid for localhost")
 	}
 
 	derBytes, err := x509.CreateCertificate(
@@ -79,7 +81,6 @@ func generateSelfSignedCert(certPath, keyPath string, local bool) error {
 		return err
 	}
 	defer certOut.Close()
-
 	pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 
 	keyOut, err := os.Create(keyPath)
@@ -87,11 +88,23 @@ func generateSelfSignedCert(certPath, keyPath string, local bool) error {
 		return err
 	}
 	defer keyOut.Close()
+	pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)})
 
-	pem.Encode(
-		keyOut,
-		&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(priv)},
-	)
+	return nil
+}
 
+// getLocalIP finds the first non-loopback IPv4 address on the host.
+func getLocalIP() net.IP {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	for _, addr := range addrs {
+		if ipNet, ok := addr.(*net.IPNet); ok &&
+			!ipNet.IP.IsLoopback() &&
+			ipNet.IP.To4() != nil {
+			return ipNet.IP
+		}
+	}
 	return nil
 }

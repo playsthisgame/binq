@@ -148,37 +148,20 @@ func loadCertPair(certPath, keyPath string) (tls.Certificate, error) {
 	return tls.LoadX509KeyPair(certPath, keyPath)
 }
 
+// tlsServerConfig loads a single TLS certificate for all incoming connections.
 func tlsServerConfig(certPath string) (*tls.Config, error) {
-	certMap := map[string]tls.Certificate{}
-	// Load multiple certs
-	localCert, err := loadCertPair(
-		filepath.Join(certPath, "localhost.pem"),
-		filepath.Join(certPath, "localhost-key.pem"),
-	)
-	if err != nil {
-		return nil, err
-	}
-	certMap["localhost"] = localCert
+	certFile := filepath.Join(certPath, "vibedrive.pem")
+	keyFile := filepath.Join(certPath, "vibedrive-key.pem")
 
-	remoteCert, err := loadCertPair(
-		filepath.Join(certPath, "remotehost.pem"),
-		filepath.Join(certPath, "remotehost-key.pem"),
-	)
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to load TLS certificate: %w", err)
 	}
-	certMap["remote.host"] = remoteCert
 
 	config := &tls.Config{
-		GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-			// Match based on SNI
-			if cert, ok := certMap[hello.ServerName]; ok {
-				return &cert, nil
-			}
-			// Fallback cert
-			return &localCert, nil
-		},
-		MinVersion: tls.VersionTLS12,
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
 	}
+
 	return config, nil
 }
